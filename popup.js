@@ -23,10 +23,7 @@ exportBtn.addEventListener('click', async () => {
       return;
     }
 
-    // Request viewport data from content script
-    console.log('Sending getViewport message to tab:', tab.id, tab.url);
     const response = await browser.tabs.sendMessage(tab.id, { action: 'getViewport' });
-    console.log('Got response:', response);
 
     if (response.error) {
       showStatus(response.error, 'error');
@@ -37,7 +34,6 @@ exportBtn.addEventListener('click', async () => {
 
     // Sanitize experiment name for use as filename
     const safeName = experimentName.replace(/^\/+/, '').replace(/[/\\:*?"<>|]/g, '_') || 'mlflow_experiment';
-    console.log('Experiment name:', experimentName, '-> filename:', safeName);
 
     // Trigger download via anchor element (avoids downloads API restrictions)
     const jsonStr = JSON.stringify(viewport, null, 2);

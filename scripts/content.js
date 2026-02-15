@@ -112,7 +112,6 @@ function setViewportConfiguration(viewport) {
       }
     }
     keysToRemove.forEach(key => localStorage.removeItem(key));
-    console.log('MLflow Viewport: cleared', keysToRemove.length, 'old localStorage entries');
 
     // Restore localStorage, remapping experiment IDs in keys if needed
     if (viewport.localStorage) {
@@ -134,7 +133,6 @@ function setViewportConfiguration(viewport) {
           console.warn('Could not set localStorage key:', key, e);
         }
       });
-      console.log('MLflow Viewport: imported', imported, 'localStorage entries, skipped', skipped, 'per-run entries');
     }
 
     // Restore sessionStorage, remapping experiment IDs in keys if needed
@@ -233,9 +231,7 @@ function showImportOverlay() {
         return;
       }
 
-      console.log('MLflow Viewport: applying config...', parsedViewport);
       const result = setViewportConfiguration(parsedViewport);
-      console.log('MLflow Viewport: setViewportConfiguration result:', result);
 
       // Show feedback before reload
       msg.textContent = 'Viewport imported! Reloading...';
@@ -256,12 +252,10 @@ function showImportOverlay() {
           }
         }
         const mergedHash = '#' + getHashPath() + '?' + importedParams.toString();
-        console.log('MLflow Viewport: applying merged hash', mergedHash);
         window.location.hash = mergedHash.replace(/^#/, '');
       }
 
       // Reload so MLflow re-reads localStorage (chart configs, column settings, etc.)
-      console.log('MLflow Viewport: reloading page to apply localStorage changes...');
       window.location.reload();
     } catch (err) {
       console.error('MLflow Viewport: import error:', err);
