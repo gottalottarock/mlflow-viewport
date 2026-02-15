@@ -101,28 +101,49 @@ function setViewportConfiguration(viewport) {
   try {
     const currentExperimentId = getExperimentId();
     const sourceExperimentId = viewport.experimentId;
+    const isCrossExperiment = sourceExperimentId && currentExperimentId && sourceExperimentId !== currentExperimentId;
+
+    // Clear existing MLflow localStorage to free space before importing
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.includes('mlflow') || key.includes('MLflow') || key.includes('experiment') || key.includes('chart') || key.includes('metric'))) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(key => localStorage.removeItem(key));
+    console.log('MLflow Viewport: cleared', keysToRemove.length, 'old localStorage entries');
 
     // Restore localStorage, remapping experiment IDs in keys if needed
     if (viewport.localStorage) {
+      let imported = 0, skipped = 0;
       Object.entries(viewport.localStorage).forEach(([key, value]) => {
+        // Skip per-run entries for cross-experiment imports (run IDs won't match)
+        if (isCrossExperiment && key.match(/RunPage-[a-f0-9]{32}/)) {
+          skipped++;
+          return;
+        }
         try {
           let targetKey = key;
-          if (sourceExperimentId && currentExperimentId && sourceExperimentId !== currentExperimentId) {
+          if (isCrossExperiment) {
             targetKey = key.replace(new RegExp(sourceExperimentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), currentExperimentId);
           }
           localStorage.setItem(targetKey, value);
+          imported++;
         } catch (e) {
           console.warn('Could not set localStorage key:', key, e);
         }
       });
+      console.log('MLflow Viewport: imported', imported, 'localStorage entries, skipped', skipped, 'per-run entries');
     }
 
     // Restore sessionStorage, remapping experiment IDs in keys if needed
     if (viewport.sessionStorage) {
       Object.entries(viewport.sessionStorage).forEach(([key, value]) => {
+        if (isCrossExperiment && key.match(/RunPage-[a-f0-9]{32}/)) return;
         try {
           let targetKey = key;
-          if (sourceExperimentId && currentExperimentId && sourceExperimentId !== currentExperimentId) {
+          if (isCrossExperiment) {
             targetKey = key.replace(new RegExp(sourceExperimentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), currentExperimentId);
           }
           sessionStorage.setItem(targetKey, value);
@@ -221,24 +242,27 @@ function showImportOverlay() {
       msg.style.color = '#4CAF50';
       applyBtn.disabled = true;
 
-      // Build target URL and navigate
-      const baseUrl = window.location.href.split('#')[0];
-      let targetUrl;
-      if (result.success && result.newHash) {
-        targetUrl = baseUrl + result.newHash;
-      } else {
-        targetUrl = window.location.href;
-      }
-      console.log('MLflow Viewport: navigating to', targetUrl);
+      overlay.remove();
 
-      // Small delay so storage writes settle, then navigate
-      setTimeout(() => {
-        overlay.remove();
-        // Use assign + reload to ensure full page refresh with new hash
-        window.location.assign(targetUrl);
-        // Hash-only changes don't trigger navigation, so force reload
-        window.location.reload();
-      }, 200);
+      // Merge imported URL params with current ones (preserve params like compareRunsMode
+      // that may be set on the current page but missing from the export)
+      if (result.success && result.newHash) {
+        const currentParams = getUrlParams();
+        const importedParams = new URLSearchParams(result.newHash.split('?')[1] || '');
+        // Keep current params that aren't in the import (e.g. compareRunsMode=CHART)
+        for (const [key, value] of Object.entries(currentParams)) {
+          if (!importedParams.has(key)) {
+            importedParams.set(key, value);
+          }
+        }
+        const mergedHash = '#' + getHashPath() + '?' + importedParams.toString();
+        console.log('MLflow Viewport: applying merged hash', mergedHash);
+        window.location.hash = mergedHash.replace(/^#/, '');
+      }
+
+      // Reload so MLflow re-reads localStorage (chart configs, column settings, etc.)
+      console.log('MLflow Viewport: reloading page to apply localStorage changes...');
+      window.location.reload();
     } catch (err) {
       console.error('MLflow Viewport: import error:', err);
       msg.textContent = 'Import failed: ' + err.message;
