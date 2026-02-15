@@ -1,0 +1,30 @@
+{
+  "manifest_version": 2,
+  "name": "MLflow Viewport",
+  "version": "1.0.0",
+  "description": "Export and import MLflow experiment viewport configurations",
+  "permissions": [
+    "activeTab",
+    "downloads",
+    "storage",
+    "<all_urls>"
+  ],
+  "browser_action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "48": "icons/icon-48.png"
+    },
+    "default_title": "MLflow Viewport"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["scripts/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "48": "icons/icon-48.png",
+    "96": "icons/icon-96.png"
+  }
+}

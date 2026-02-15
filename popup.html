@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>MLflow Viewport</title>
+  <style>
+    body {
+      width: 300px;
+      padding: 15px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+    }
+    h2 {
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      color: #333;
+    }
+    .button-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    button {
+      padding: 10px 15px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background-color 0.2s;
+    }
+    #exportBtn {
+      background-color: #4CAF50;
+      color: white;
+    }
+    #exportBtn:hover {
+      background-color: #45a049;
+    }
+    #importBtn {
+      background-color: #2196F3;
+      color: white;
+    }
+    #importBtn:hover {
+      background-color: #0b7dda;
+    }
+    #status {
+      margin-top: 10px;
+      padding: 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      text-align: center;
+      display: none;
+    }
+    #status.success {
+      background-color: #d4edda;
+      color: #155724;
+      display: block;
+    }
+    #status.error {
+      background-color: #f8d7da;
+      color: #721c24;
+      display: block;
+    }
+    #status.warning {
+      background-color: #fff3cd;
+      color: #856404;
+      display: block;
+    }
+    .disabled {
+      opacity: 0.5;
+      cursor: not-allowed !important;
+    }
+  </style>
+</head>
+<body>
+  <h2>MLflow Viewport Manager</h2>
+  <div class="button-container">
+    <button id="exportBtn">📥 Export Viewport</button>
+    <button id="importBtn">📤 Import Viewport</button>
+  </div>
+  <div id="status"></div>
+  <input type="file" id="fileInput" style="display: none;" accept=".json">
+  <script src="popup.js"></script>
+</body>
+</html>
