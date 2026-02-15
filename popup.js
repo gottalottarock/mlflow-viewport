@@ -1,11 +1,11 @@
 const exportBtn = document.getElementById('exportBtn');
 const importBtn = document.getElementById('importBtn');
-const fileInput = document.getElementById('fileInput');
 const status = document.getElementById('status');
 
 function showStatus(message, type) {
   status.textContent = message;
   status.className = type;
+  status.style.display = 'block';
   setTimeout(() => {
     status.className = '';
     status.style.display = 'none';
@@ -60,61 +60,22 @@ exportBtn.addEventListener('click', async () => {
   }
 });
 
-// Import viewport configuration
-importBtn.addEventListener('click', () => {
-  fileInput.click();
-});
-
-fileInput.addEventListener('change', async (event) => {
-  const file = event.target.files[0];
-  if (!file) return;
-
+// Import viewport configuration — open overlay on the page itself
+// (popup closes when file dialog opens in Zen, so file picking must happen on-page)
+importBtn.addEventListener('click', async () => {
   try {
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
 
-    // Check if we're on an MLflow page
     if (!tab.url.includes('mlflow') && !tab.url.includes('localhost') && !tab.url.includes('/experiments/')) {
       showStatus('Please open an MLflow experiment page', 'error');
       return;
     }
 
-    // Read file content
-    const text = await file.text();
-    const viewport = JSON.parse(text);
-
-    // Get current experiment name for confirmation
-    const currentExp = await browser.tabs.sendMessage(tab.id, { action: 'getExperimentName' });
-
-    // Show warning
-    const confirmed = confirm(
-      `This will overwrite the viewport configuration for experiment:\n"${currentExp.experimentName}"\n\nContinue?`
-    );
-
-    if (!confirmed) {
-      showStatus('Import cancelled', 'warning');
-      fileInput.value = '';
-      return;
-    }
-
-    // Send viewport data to content script
-    const response = await browser.tabs.sendMessage(tab.id, {
-      action: 'setViewport',
-      viewport: viewport
-    });
-
-    if (response.error) {
-      showStatus(response.error, 'error');
-    } else {
-      showStatus('Viewport imported successfully!', 'success');
-      // Reload the page after a short delay
-      setTimeout(() => {
-        browser.tabs.reload(tab.id);
-      }, 1000);
-    }
+    await browser.tabs.sendMessage(tab.id, { action: 'showImportOverlay' });
+    // Close the popup — the overlay on the page handles the rest
+    window.close();
   } catch (error) {
     console.error('Import error:', error);
     showStatus('Import failed: ' + error.message, 'error');
-  } finally {
-    fileInput.value = '';
   }
 });
