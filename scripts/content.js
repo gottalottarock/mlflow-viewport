@@ -103,11 +103,13 @@ function setViewportConfiguration(viewport) {
     const sourceExperimentId = viewport.experimentId;
     const isCrossExperiment = sourceExperimentId && currentExperimentId && sourceExperimentId !== currentExperimentId;
 
-    // Clear existing MLflow localStorage to free space before importing
+    // Clear existing MLflow localStorage only for the CURRENT experiment
     const keysToRemove = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && (key.includes('mlflow') || key.includes('MLflow') || key.includes('experiment') || key.includes('chart') || key.includes('metric'))) {
+      if (!key) continue;
+      // Only remove keys that belong to the current experiment
+      if (currentExperimentId && key.includes(currentExperimentId)) {
         keysToRemove.push(key);
       }
     }
