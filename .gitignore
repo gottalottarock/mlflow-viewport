@@ -4,4 +4,5 @@ node_modules/
 *.log
 config.local.json
 data/
+build/
 .vscode/
