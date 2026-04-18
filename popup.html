@@ -5,78 +5,113 @@
   <title>MLflow Viewport</title>
   <style>
     body {
-      width: 300px;
-      padding: 15px;
+      width: 420px;
+      min-height: 300px;
+      padding: 16px 20px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       margin: 0;
     }
-    h2 {
-      margin: 0 0 15px 0;
-      font-size: 16px;
-      color: #333;
-    }
-    .button-container {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
+    h2 { margin: 0 0 15px 0; font-size: 18px; color: #333; }
+    .section { display: flex; flex-direction: column; gap: 12px; }
     button {
-      padding: 10px 15px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 500;
+      padding: 10px 15px; border: none; border-radius: 4px;
+      cursor: pointer; font-size: 14px; font-weight: 500;
       transition: background-color 0.2s;
     }
-    #exportBtn {
-      background-color: #4CAF50;
-      color: white;
+    .btn-export { background: #4CAF50; color: #fff; }
+    .btn-export:hover { background: #45a049; }
+    .btn-import { background: #2196F3; color: #fff; }
+    .btn-import:hover { background: #0b7dda; }
+    .btn-secondary {
+      background: #f5f5f5; color: #333; border: 1px solid #ddd;
+      padding: 8px 12px; font-size: 13px;
     }
-    #exportBtn:hover {
-      background-color: #45a049;
+    .btn-secondary:hover { background: #e8e8e8; }
+    .btn-small {
+      background: none; border: none; color: #999;
+      font-size: 11px; padding: 2px 6px; cursor: pointer;
     }
-    #importBtn {
-      background-color: #2196F3;
-      color: white;
-    }
-    #importBtn:hover {
-      background-color: #0b7dda;
-    }
+    .btn-small:hover { color: #d32f2f; }
+
     #status {
-      margin-top: 10px;
-      padding: 8px;
-      border-radius: 4px;
-      font-size: 12px;
-      text-align: center;
-      display: none;
+      margin-top: 10px; padding: 8px; border-radius: 4px;
+      font-size: 12px; text-align: center; display: none;
     }
-    #status.success {
-      background-color: #d4edda;
-      color: #155724;
-      display: block;
+    #status.success { background: #d4edda; color: #155724; display: block; }
+    #status.error { background: #f8d7da; color: #721c24; display: block; }
+    #status.warning { background: #fff3cd; color: #856404; display: block; }
+
+    .submenu {
+      display: none; flex-direction: column; gap: 6px;
+      margin-top: 6px; padding: 8px;
+      background: #f9f9f9; border-radius: 4px; border: 1px solid #eee;
     }
-    #status.error {
-      background-color: #f8d7da;
-      color: #721c24;
-      display: block;
+    .submenu.open { display: flex; }
+    .submenu-title { font-size: 12px; color: #666; margin-bottom: 2px; }
+    .submenu input[type="text"] {
+      padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px;
+      font-size: 13px; width: 100%; box-sizing: border-box;
     }
-    #status.warning {
-      background-color: #fff3cd;
-      color: #856404;
-      display: block;
+    .export-buttons { display: flex; gap: 6px; }
+    .export-buttons button { flex: 1; }
+
+    .saved-list { list-style: none; padding: 0; margin: 0; max-height: 200px; overflow-y: auto; }
+    .saved-item {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 8px; border-bottom: 1px solid #eee;
+      font-size: 13px; border-radius: 3px;
     }
-    .disabled {
-      opacity: 0.5;
-      cursor: not-allowed !important;
+    .saved-item-load { flex: 1; cursor: pointer; background: none; border: none; text-align: left; padding: 0; font-size: 13px; }
+    .saved-item-load:hover { color: #1976D2; }
+    .saved-item-date { font-size: 11px; color: #999; white-space: nowrap; }
+    .empty-msg { font-size: 12px; color: #999; padding: 8px; text-align: center; }
+
+    .checkbox-row {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: #555; margin-bottom: 4px;
     }
+    .checkbox-row input { margin: 0; }
+
+    .separator { border: none; border-top: 1px solid #eee; margin: 8px 0; }
+    .backup-section { margin-top: 4px; }
+    .backup-section .submenu-title { margin-bottom: 4px; }
+    .backup-row { display: flex; gap: 6px; }
+    .backup-row button { flex: 1; }
   </style>
 </head>
 <body>
   <h2>MLflow Viewport Manager</h2>
-  <div class="button-container">
-    <button id="exportBtn">📥 Export Viewport</button>
-    <button id="importBtn">📤 Import Viewport</button>
+  <div class="section">
+    <button class="btn-export" id="exportBtn">📥 Export Viewport</button>
+    <div class="submenu" id="exportMenu">
+      <div class="submenu-title">Name:</div>
+      <input type="text" id="exportName" placeholder="loading...">
+      <div class="export-buttons">
+        <button class="btn-secondary" id="exportFileBtn">💾 Save to file</button>
+        <button class="btn-secondary" id="exportBrowserBtn">🔖 Save to browser</button>
+      </div>
+    </div>
+
+    <button class="btn-import" id="importBtn">📤 Import Viewport</button>
+    <div class="submenu" id="importMenu">
+      <label class="checkbox-row">
+        <input type="checkbox" id="fullImportToggle">
+        Full import (restore all settings &amp; navigate to saved experiment)
+      </label>
+      <div style="font-size:11px;color:#999;margin:-4px 0 4px 20px">Default: apply only chart layout to current experiment</div>
+      <div class="submenu-title">Load from saved:</div>
+      <ul class="saved-list" id="savedList"></ul>
+      <button class="btn-secondary" id="importFileBtn">📂 Import from file</button>
+    </div>
+
+    <hr class="separator">
+    <div class="backup-section">
+      <div class="submenu-title">Backup saved configs:</div>
+      <div class="backup-row">
+        <button class="btn-secondary" id="backupBtn">💾 Backup all</button>
+        <button class="btn-secondary" id="restoreBtn">📂 Restore</button>
+      </div>
+    </div>
   </div>
   <div id="status"></div>
   <script src="popup.js"></script>

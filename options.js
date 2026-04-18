@@ -95,3 +95,13 @@ newUrlInput.addEventListener('keydown', (e) => {
 
 // Initial load
 getUrls().then(renderUrls);
+
+// Skip confirmation toggle
+const skipConfirmToggle = document.getElementById('skipConfirmToggle');
+browser.storage.local.get('skipImportConfirm').then(data => {
+  skipConfirmToggle.checked = !!data.skipImportConfirm;
+});
+skipConfirmToggle.addEventListener('change', async () => {
+  await browser.storage.local.set({ skipImportConfirm: skipConfirmToggle.checked });
+  showStatus(skipConfirmToggle.checked ? 'Confirmations disabled' : 'Confirmations enabled', 'success');
+});

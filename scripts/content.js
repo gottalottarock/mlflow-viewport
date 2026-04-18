@@ -8,14 +8,15 @@ if (window.__mlflowViewportLoaded) {
 window.__mlflowViewportLoaded = true;
 
 async function getExperimentName() {
+  // Single experiment: /experiments/(\d+)/
   const urlMatch = (window.location.pathname + window.location.hash).match(/experiments\/(\d+)/);
-  const experimentId = urlMatch ? urlMatch[1] : null;
+  const singleExperimentId = urlMatch ? urlMatch[1] : null;
 
-  // Method 1: Fetch from MLflow REST API (same origin, most reliable)
-  if (experimentId) {
+  // Method 1: Fetch from MLflow REST API (single experiment)
+  if (singleExperimentId) {
     try {
       const apiBase = window.location.origin;
-      const res = await fetch(`${apiBase}/api/2.0/mlflow/experiments/get?experiment_id=${experimentId}`);
+      const res = await fetch(`${apiBase}/api/2.0/mlflow/experiments/get?experiment_id=${singleExperimentId}`);
       if (res.ok) {
         const data = await res.json();
         const name = data.experiment && data.experiment.name;
@@ -26,19 +27,69 @@ async function getExperimentName() {
     } catch (e) {
       console.log('Could not fetch experiment name from API:', e);
     }
+    return `experiment_${singleExperimentId}`;
   }
 
-  // Method 2: Fallback to experiment ID
-  if (experimentId) {
-    return `experiment_${experimentId}`;
+  // Method 2: Multi-experiment page — try to get names via API
+  const hash = window.location.hash;
+  const queryIndex = hash.indexOf('?');
+  if (queryIndex !== -1) {
+    const params = new URLSearchParams(hash.substring(queryIndex + 1));
+    const experiments = params.get('experiments');
+    if (experiments) {
+      try {
+        const ids = JSON.parse(experiments);
+        if (Array.isArray(ids) && ids.length > 0) {
+          const names = [];
+          const apiBase = window.location.origin;
+          for (const id of ids) {
+            try {
+              const res = await fetch(`${apiBase}/api/2.0/mlflow/experiments/get?experiment_id=${encodeURIComponent(id)}`);
+              if (res.ok) {
+                const data = await res.json();
+                names.push(data.experiment?.name || `exp_${id}`);
+              } else {
+                names.push(`exp_${id}`);
+              }
+            } catch (e) {
+              names.push(`exp_${id}`);
+            }
+          }
+          return names.join('+');
+        }
+      } catch (e) { /* not valid JSON */ }
+    }
   }
 
   return 'mlflow_experiment';
 }
 
+// Returns experiment identifier used in localStorage keys.
+// Single experiment: "7" (from /experiments/7/)
+// Multi-experiment: '["1","7"]' (from ?experiments=["1","7"])
 function getExperimentId() {
+  // Method 1: Single experiment page — /experiments/(\d+)/
   const match = (window.location.pathname + window.location.hash).match(/experiments\/(\d+)/);
-  return match ? match[1] : null;
+  if (match) return match[1];
+
+  // Method 2: Multi-experiment page — experiments param in URL hash
+  const hash = window.location.hash;
+  const queryIndex = hash.indexOf('?');
+  if (queryIndex !== -1) {
+    const params = new URLSearchParams(hash.substring(queryIndex + 1));
+    const experiments = params.get('experiments');
+    if (experiments) {
+      try {
+        const parsed = JSON.parse(experiments);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Return the JSON array string exactly as used in localStorage keys
+          return JSON.stringify(parsed);
+        }
+      } catch (e) { /* not valid JSON */ }
+    }
+  }
+
+  return null;
 }
 
 function getUrlParams() {
@@ -64,6 +115,7 @@ function getHashPath() {
 
 function getViewportConfiguration() {
   const experimentId = getExperimentId();
+  const keyFragment = experimentIdToKeyFragment(experimentId);
 
   const viewport = {
     timestamp: new Date().toISOString(),
@@ -76,10 +128,31 @@ function getViewportConfiguration() {
     sessionStorage: {}
   };
 
-  // Capture localStorage items related to MLflow
+  if (!keyFragment) {
+    console.warn('[MLflow Viewport] Cannot determine experiment ID, export will be empty');
+    return viewport;
+  }
+
+  // Clean up double-escaped keys (e.g., ExperimentPage-["["1","7"]"]-... from old bugs)
+  const doubleEscaped = `["${keyFragment}"]`;
+  const keysToClean = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key && (key.includes('mlflow') || key.includes('MLflow') || key.includes('experiment') || key.includes('chart') || key.includes('metric'))) {
+    if (key && key.includes(doubleEscaped)) keysToClean.push(key);
+  }
+  if (keysToClean.length > 0) {
+    console.log('[MLflow Viewport] Cleaning up', keysToClean.length, 'double-escaped localStorage keys');
+    keysToClean.forEach(key => localStorage.removeItem(key));
+  }
+
+  // Match keys by exact fragment with dash boundaries to avoid double-escaped keys
+  const fragmentPattern = `-${keyFragment}-`;
+  const fragmentSuffix = `-${keyFragment}`; // for keys where fragment is at end
+
+  // Capture only localStorage keys belonging to the current experiment
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && (key.includes(fragmentPattern) || key.endsWith(fragmentSuffix))) {
       try {
         viewport.localStorage[key] = localStorage.getItem(key);
       } catch (e) {
@@ -88,10 +161,10 @@ function getViewportConfiguration() {
     }
   }
 
-  // Capture sessionStorage items
+  // Capture only sessionStorage keys belonging to the current experiment
   for (let i = 0; i < sessionStorage.length; i++) {
     const key = sessionStorage.key(i);
-    if (key && (key.includes('mlflow') || key.includes('MLflow') || key.includes('experiment') || key.includes('chart') || key.includes('metric'))) {
+    if (key && (key.includes(fragmentPattern) || key.endsWith(fragmentSuffix))) {
       try {
         viewport.sessionStorage[key] = sessionStorage.getItem(key);
       } catch (e) {
@@ -100,91 +173,178 @@ function getViewportConfiguration() {
     }
   }
 
+  console.log('[MLflow Viewport] Exported', Object.keys(viewport.localStorage).length,
+    'localStorage keys for experiment', keyFragment);
   return viewport;
 }
 
 function setViewportConfiguration(viewport) {
   try {
-    const currentExperimentId = getExperimentId();
-    const sourceExperimentId = viewport.experimentId;
-    const isCrossExperiment = sourceExperimentId && currentExperimentId && sourceExperimentId !== currentExperimentId;
+    const sourceKeyFragment = experimentIdToKeyFragment(viewport.experimentId);
 
-    // Clear existing MLflow localStorage only for the CURRENT experiment
-    const keysToRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key) continue;
-      // Only remove keys that belong to the current experiment
-      if (currentExperimentId && key.includes(currentExperimentId)) {
-        keysToRemove.push(key);
-      }
-    }
-    keysToRemove.forEach(key => localStorage.removeItem(key));
-
-    // Restore localStorage, remapping experiment IDs in keys if needed
-    if (viewport.localStorage) {
-      let imported = 0, skipped = 0;
-      Object.entries(viewport.localStorage).forEach(([key, value]) => {
-        // Skip per-run entries for cross-experiment imports (run IDs won't match)
-        if (isCrossExperiment && key.match(/RunPage-[a-f0-9]{32}/)) {
-          skipped++;
-          return;
+    // Clear existing localStorage keys for the saved experiment (exact match with dash boundaries)
+    if (sourceKeyFragment) {
+      const fragPattern = `-${sourceKeyFragment}-`;
+      const fragSuffix = `-${sourceKeyFragment}`;
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.includes(fragPattern) || key.endsWith(fragSuffix))) {
+          keysToRemove.push(key);
         }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+    }
+
+    // Write all imported localStorage keys directly (no remapping needed —
+    // we'll navigate to the saved experiment's page)
+    if (viewport.localStorage) {
+      const stateKeys = [];
+      Object.entries(viewport.localStorage).forEach(([key, value]) => {
         try {
-          let targetKey = key;
-          if (isCrossExperiment) {
-            targetKey = key.replace(new RegExp(sourceExperimentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), currentExperimentId);
-          }
-          localStorage.setItem(targetKey, value);
-          imported++;
+          localStorage.setItem(key, value);
+          if (key.includes('ReactComponentState')) stateKeys.push(key);
         } catch (e) {
           console.warn('Could not set localStorage key:', key, e);
         }
       });
+      // Block MLflow from overwriting our imported state during page unload
+      if (stateKeys.length > 0) {
+        blockStorageOverwrite(stateKeys);
+      }
     }
 
-    // Restore sessionStorage, remapping experiment IDs in keys if needed
+    // Write all imported sessionStorage keys directly
     if (viewport.sessionStorage) {
       Object.entries(viewport.sessionStorage).forEach(([key, value]) => {
-        if (isCrossExperiment && key.match(/RunPage-[a-f0-9]{32}/)) return;
         try {
-          let targetKey = key;
-          if (isCrossExperiment) {
-            targetKey = key.replace(new RegExp(sourceExperimentId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), currentExperimentId);
-          }
-          sessionStorage.setItem(targetKey, value);
+          sessionStorage.setItem(key, value);
         } catch (e) {
           console.warn('Could not set sessionStorage key:', key, e);
         }
       });
     }
 
-    // Apply URL parameters to the current experiment
-    if (viewport.urlParams && Object.keys(viewport.urlParams).length > 0) {
-      const currentHashPath = getHashPath();
-      const params = new URLSearchParams(viewport.urlParams);
-      const newHash = `#${currentHashPath}?${params.toString()}`;
-      return { success: true, newHash: newHash };
-    }
-
-    return { success: true };
+    // Return the saved URL so the caller can navigate to it
+    return { success: true, savedUrl: viewport.url || null };
   } catch (error) {
     return { success: false, error: error.message };
   }
 }
 
+// Convert experiment ID to the exact fragment used in localStorage keys.
+// Single "7" → '["7"]', multi '["1","7"]' → '["1","7"]' (already in array format)
+function experimentIdToKeyFragment(expId) {
+  if (!expId) return null;
+  if (expId.startsWith('[')) return expId;
+  return '["' + expId + '"]';
+}
+
+// Inject a script into the PAGE context to block MLflow from overwriting
+// specific localStorage keys during beforeunload (React state save on unload).
+function blockStorageOverwrite(keysToBlock) {
+  const script = document.createElement('script');
+  script.textContent = `(function(){
+    var _blocked = ${JSON.stringify(Array.isArray(keysToBlock) ? keysToBlock : [keysToBlock])};
+    var _orig = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(k, v) {
+      if (_blocked.indexOf(k) !== -1) {
+        console.log('[MLflow Viewport] Blocked state overwrite during unload:', k);
+        return;
+      }
+      return _orig.call(this, k, v);
+    };
+  })();`;
+  (document.head || document.documentElement).appendChild(script);
+  script.remove();
+}
+
+// Apply only chart configurations from imported viewport to current experiment
+function setChartsOnlyConfiguration(viewport) {
+  try {
+    const currentExperimentId = getExperimentId();
+    if (!currentExperimentId) {
+      return { success: false, error: 'Cannot determine current experiment ID' };
+    }
+
+    const currentKeyFragment = experimentIdToKeyFragment(currentExperimentId);
+    const sourceKeyFragment = experimentIdToKeyFragment(viewport.experimentId);
+
+    console.log('[MLflow Viewport] Charts-only import:');
+    console.log('  source:', sourceKeyFragment, '→ current:', currentKeyFragment);
+
+    // Find the ReactComponentState in imported data (should be exactly one)
+    let importedState = null;
+    if (viewport.localStorage) {
+      for (const [key, value] of Object.entries(viewport.localStorage)) {
+        if (key.includes('ExperimentPage') && key.includes('ReactComponentState')) {
+          try { importedState = JSON.parse(value); } catch (e) { /* ignore */ }
+          console.log('  Found imported state key:', key);
+          break;
+        }
+      }
+    }
+
+    if (!importedState) {
+      return { success: false, error: 'No chart configuration found in imported data' };
+    }
+
+    // Use exact key construction (not search) to avoid matching double-escaped keys
+    const currentStateKey = `MLflowLocalStorage-1.1-ExperimentPage-${currentKeyFragment}-ReactComponentState`;
+    let currentState = {};
+    try {
+      const raw = localStorage.getItem(currentStateKey);
+      if (raw) currentState = JSON.parse(raw);
+      else console.log('  No existing state, creating key:', currentStateKey);
+    } catch (e) { /* ignore */ }
+
+    // Merge only chart-related fields
+    const chartFields = [
+      'compareRunCharts', 'compareRunSections', 'globalLineChartConfig',
+      'isAccordionReordered', 'useGroupedValuesInCharts', 'hideEmptyCharts',
+      'chartsSearchFilter', 'viewMaximized'
+    ];
+
+    const mergedFields = [];
+    for (const field of chartFields) {
+      if (importedState[field] !== undefined) {
+        currentState[field] = importedState[field];
+        mergedFields.push(field);
+      }
+    }
+    console.log('  Merged fields:', mergedFields);
+
+    const serialized = JSON.stringify(currentState);
+    localStorage.setItem(currentStateKey, serialized);
+
+    // Block MLflow from overwriting during page unload
+    blockStorageOverwrite(currentStateKey);
+
+    return { success: true };
+  } catch (error) {
+    console.error('[MLflow Viewport] Charts-only error:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 // Show an import overlay directly on the page (avoids popup-closing-on-file-dialog issue)
-function showImportOverlay() {
+function showImportOverlay(chartsOnly = false, skipConfirm = false) {
   // Remove existing overlay if any
   const existing = document.getElementById('mlflow-viewport-overlay');
   if (existing) existing.remove();
+
+  const modeLabel = chartsOnly ? 'Charts Only' : 'Full Import';
+  const modeHint = chartsOnly
+    ? 'Only chart layout will be applied to the current experiment.'
+    : 'All settings will be restored and page will navigate to the saved experiment.';
 
   const overlay = document.createElement('div');
   overlay.id = 'mlflow-viewport-overlay';
   overlay.innerHTML = `
     <div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999999;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
       <div style="background:#fff;border-radius:8px;padding:24px;max-width:400px;width:90%;box-shadow:0 4px 24px rgba(0,0,0,0.3)">
-        <h3 style="margin:0 0 16px;font-size:16px;color:#333">Import Viewport Configuration</h3>
+        <h3 style="margin:0 0 6px;font-size:16px;color:#333">Import Viewport — ${modeLabel}</h3>
+        <div style="margin:0 0 14px;font-size:12px;color:#888">${modeHint}</div>
         <input type="file" id="mlflow-viewport-file" accept=".json" style="margin-bottom:16px;display:block;width:100%;box-sizing:border-box">
         <div id="mlflow-viewport-msg" style="margin-bottom:12px;font-size:13px;color:#666"></div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -230,41 +390,32 @@ function showImportOverlay() {
   applyBtn.addEventListener('click', async () => {
     if (!parsedViewport) return;
     try {
-      const experimentName = await getExperimentName();
-      const confirmed = window.confirm(
-        `This will overwrite the viewport configuration for experiment:\n"${experimentName}"\n\nContinue?`
-      );
-      if (!confirmed) {
-        overlay.remove();
-        return;
+      if (!skipConfirm) {
+        const confirmMsg = chartsOnly
+          ? `Apply chart layout from "${parsedViewport.experimentName || 'saved'}" to the current experiment?\n\nOnly charts will change. Runs and filters stay as they are.`
+          : `Full import: "${parsedViewport.experimentName || 'saved'}"\n\nThis will navigate to the saved experiment and restore ALL settings (charts, runs, filters).`;
+        if (!window.confirm(confirmMsg)) {
+          overlay.remove();
+          return;
+        }
       }
 
-      const result = setViewportConfiguration(parsedViewport);
+      const result = chartsOnly
+        ? setChartsOnlyConfiguration(parsedViewport)
+        : setViewportConfiguration(parsedViewport);
 
-      // Show feedback before reload
-      msg.textContent = 'Viewport imported! Reloading...';
+      msg.textContent = (chartsOnly ? 'Charts' : 'Viewport') + ' imported! Reloading...';
       msg.style.color = '#4CAF50';
       applyBtn.disabled = true;
-
       overlay.remove();
 
-      // Merge imported URL params with current ones (preserve params like compareRunsMode
-      // that may be set on the current page but missing from the export)
-      if (result.success && result.newHash) {
-        const currentParams = getUrlParams();
-        const importedParams = new URLSearchParams(result.newHash.split('?')[1] || '');
-        // Keep current params that aren't in the import (e.g. compareRunsMode=CHART)
-        for (const [key, value] of Object.entries(currentParams)) {
-          if (!importedParams.has(key)) {
-            importedParams.set(key, value);
-          }
-        }
-        const mergedHash = '#' + getHashPath() + '?' + importedParams.toString();
-        window.location.hash = mergedHash.replace(/^#/, '');
+      // Full import: navigate to the saved experiment's URL
+      // Charts-only: stay on current page, just reload
+      if (!chartsOnly && result.success && result.savedUrl) {
+        window.location.href = result.savedUrl;
+      } else {
+        window.location.reload();
       }
-
-      // Reload so MLflow re-reads localStorage (chart configs, column settings, etc.)
-      window.location.reload();
     } catch (err) {
       console.error('MLflow Viewport: import error:', err);
       msg.textContent = 'Import failed: ' + err.message;
@@ -298,9 +449,11 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
   } else if (request.action === 'setViewport') {
     try {
-      const result = setViewportConfiguration(request.viewport);
+      const result = request.chartsOnly
+        ? setChartsOnlyConfiguration(request.viewport)
+        : setViewportConfiguration(request.viewport);
       if (result.success) {
-        sendResponse({ success: true, newHash: result.newHash || null });
+        sendResponse({ success: true, savedUrl: result.savedUrl || null });
       } else {
         sendResponse({ error: result.error });
       }
@@ -308,7 +461,7 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ error: error.message });
     }
   } else if (request.action === 'showImportOverlay') {
-    showImportOverlay();
+    showImportOverlay(request.chartsOnly, request.skipConfirm);
     sendResponse({ success: true });
   }
 
