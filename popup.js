@@ -12,17 +12,60 @@ function showStatus(message, type) {
   }, 3000);
 }
 
+// Load allowed MLflow URLs from storage (auto-seeds from config.local.json on first run)
+async function getAllowedUrls() {
+  const data = await browser.storage.local.get(['mlflowUrls', 'configSeeded']);
+  if (!data.configSeeded) {
+    try {
+      const res = await fetch(browser.runtime.getURL('config.local.json'));
+      if (res.ok) {
+        const config = await res.json();
+        if (Array.isArray(config.mlflowUrls) && config.mlflowUrls.length > 0) {
+          const existing = data.mlflowUrls || [];
+          const merged = [...new Set([...existing, ...config.mlflowUrls])];
+          await browser.storage.local.set({ mlflowUrls: merged, configSeeded: true });
+          return merged;
+        }
+      }
+    } catch (e) { /* config.local.json missing — fine */ }
+    await browser.storage.local.set({ configSeeded: true });
+  }
+  return data.mlflowUrls || [];
+}
+
+// Check if the tab URL matches any configured MLflow server
+function isAllowedUrl(tabUrl, allowedUrls) {
+  return allowedUrls.some(base => tabUrl.startsWith(base));
+}
+
+// Ensure the content script is injected into the tab.
+// Needed when the page was already open before the extension was installed/reloaded.
+async function ensureContentScript(tabId) {
+  try {
+    await browser.tabs.sendMessage(tabId, { action: 'ping' });
+  } catch (e) {
+    // Content script not loaded — inject it now
+    await browser.tabs.executeScript(tabId, { file: 'scripts/content.js' });
+  }
+}
+
 // Export viewport configuration
 exportBtn.addEventListener('click', async () => {
   try {
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+    const allowedUrls = await getAllowedUrls();
 
-    // Check if we're on an MLflow page
-    if (!tab.url.includes('mlflow') && !tab.url.includes('localhost') && !tab.url.includes('/experiments/')) {
-      showStatus('Please open an MLflow experiment page', 'error');
+    if (allowedUrls.length === 0) {
+      showStatus('No MLflow URLs configured. Open extension settings to add one.', 'error');
       return;
     }
 
+    if (!isAllowedUrl(tab.url, allowedUrls)) {
+      showStatus('This page is not a configured MLflow server.', 'error');
+      return;
+    }
+
+    await ensureContentScript(tab.id);
     const response = await browser.tabs.sendMessage(tab.id, { action: 'getViewport' });
 
     if (response.error) {
@@ -61,12 +104,19 @@ exportBtn.addEventListener('click', async () => {
 importBtn.addEventListener('click', async () => {
   try {
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+    const allowedUrls = await getAllowedUrls();
 
-    if (!tab.url.includes('mlflow') && !tab.url.includes('localhost') && !tab.url.includes('/experiments/')) {
-      showStatus('Please open an MLflow experiment page', 'error');
+    if (allowedUrls.length === 0) {
+      showStatus('No MLflow URLs configured. Open extension settings to add one.', 'error');
       return;
     }
 
+    if (!isAllowedUrl(tab.url, allowedUrls)) {
+      showStatus('This page is not a configured MLflow server.', 'error');
+      return;
+    }
+
+    await ensureContentScript(tab.id);
     await browser.tabs.sendMessage(tab.id, { action: 'showImportOverlay' });
     // Close the popup — the overlay on the page handles the rest
     window.close();

@@ -1,6 +1,12 @@
 // MLflow Viewport Content Script
 // This script runs on MLflow pages and interacts with the application state
 
+// Guard against double-injection (e.g. content_scripts + executeScript fallback)
+if (window.__mlflowViewportLoaded) {
+  // Already loaded — skip re-initialization
+} else {
+window.__mlflowViewportLoaded = true;
+
 async function getExperimentName() {
   const urlMatch = (window.location.pathname + window.location.hash).match(/experiments\/(\d+)/);
   const experimentId = urlMatch ? urlMatch[1] : null;
@@ -269,6 +275,10 @@ function showImportOverlay() {
 
 // Listen for messages from popup
 browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'ping') {
+    sendResponse({ pong: true });
+    return;
+  }
   if (request.action === 'getViewport') {
     getExperimentName().then(experimentName => {
       const viewport = getViewportConfiguration();
@@ -306,3 +316,5 @@ browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 console.log('MLflow Viewport extension loaded');
+
+} // end of double-load guard
